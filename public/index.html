@@ -434,46 +434,74 @@
       if (e.key === 'Enter') sendMessage();
     });
 
-    // Ovoz yozish mantiqlari
-    let mediaRecorder, audioChunks = [], isRecording = false;
+    // OVOZ YOZISH MANTIQLARI (Ishonchli va universal)
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let isRecording = false;
 
     async function toggleRecording() {
       if (!isRecording) {
         try {
+          // 1. Mikrofonga ruxsat olish
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          mediaRecorder = new MediaRecorder(stream);
+
+          // 2. Brauzer mos keladigan audio formatini tanlash
+          let options = {};
+          if (MediaRecorder.isTypeSupported('audio/webm')) {
+            options = { mimeType: 'audio/webm' };
+          } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+            options = { mimeType: 'audio/mp4' };
+          } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
+            options = { mimeType: 'audio/ogg' };
+          }
+
+          mediaRecorder = new MediaRecorder(stream, options);
           audioChunks = [];
 
-          mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
-          mediaRecorder.onstop = () => {
-            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-            const reader = new FileReader();
-            reader.readAsDataURL(audioBlob);
-            reader.onloadend = () => {
-              socket.emit('chatMessage', { user: currentUser, audio: reader.result, room });
-            };
+          // Har safar ma'lumot kelganda massivga yig'ish
+          mediaRecorder.ondataavailable = (event) => {
+            if (event.data && event.data.size > 0) {
+              audioChunks.push(event.data);
+            }
           };
 
-          mediaRecorder.start();
+          // Yozish to'xtaganda avtomatik yuborish
+          mediaRecorder.onstop = () => {
+            const mimeType = mediaRecorder.mimeType || 'audio/webm';
+            const audioBlob = new Blob(audioChunks, { type: mimeType });
+
+            // Agar o'chirilgan bo'lsa yoki ovoz yozilmagan bo'lsa yubormaslik
+            if (audioBlob.size > 0) {
+              const reader = new FileReader();
+              reader.readAsDataURL(audioBlob);
+              reader.onloadend = () => {
+                socket.emit('chatMessage', { user: currentUser, audio: reader.result, room });
+              };
+            }
+
+            // Mikrofondan ulanishni to'liq uzish va tozalash
+            stream.getTracks().forEach(track => track.stop());
+          };
+
+          // Yozishni boshlash (har 200ms da data tayyorlash)
+          mediaRecorder.start(200);
           isRecording = true;
           recordBtn.innerText = "⏹️";
           recordBtn.classList.add('recording');
+
         } catch (err) {
-          alert("Mikrofon ishlamadi yoki ruxsat berilmadi!");
+          console.error("Mikrofon xatosi:", err);
+          alert("Mikrofon ishlamadi! Brauzerdan mikrofonga ruxsat berilganini tekshiring.");
         }
       } else {
-er
-        mediaRecorder.stop();
-        mediaRecorder.stream.getTracks().forEach(track => track.stop());
+        // 3. Yozishni to'xtatish
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+          mediaRecorder.stop();
+        }
         isRecording = false;
         recordBtn.innerText = "🎤";
         recordBtn.classList.remove('recording');
       }
-    }
-
-    function copyLink() {
-      navigator.clipboard.writeText(window.location.href);
-      alert("Xona havolasi nusxalandi!");
     }
   </script>
 </body>
